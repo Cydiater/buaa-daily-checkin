@@ -395,7 +395,7 @@ export default {
                     info.area = area;
                     info.address = address;
                     info.location = loc;
-                    await env.kv.put(`user:${info.username}`, JSON.stringify(info));
+                    await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
                     await check_with_user(env, info.username);
                 }
             } catch (e: unknown) {
