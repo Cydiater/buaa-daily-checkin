@@ -6,12 +6,12 @@
 
 <span>
 
-<img src="./imgs/login.PNG" width=300/> 
+<img src="./imgs/login.PNG" width=150/> 
 
-<img src="./imgs/set-time.PNG" width=300/> 
+<img src="./imgs/set-time.PNG" width=150/> 
 
-<img src="./imgs/set-place.PNG" width=300/> 
+<img src="./imgs/set-place.PNG" width=150/> 
 
-<img src="./imgs/delete.PNG" width=300/> 
+<img src="./imgs/delete.PNG" width=150/> 
 
 </span>
