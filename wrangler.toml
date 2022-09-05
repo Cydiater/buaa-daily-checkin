@@ -1,0 +1,10 @@
+name = "buaa-daily-check-in"
+main = "src/index.ts"
+compatibility_date = "2022-08-30"
+
+kv_namespaces = [
+  { binding = "kv", id = "f286b035916747e38acb20668607227a", preview_id = "436c194e2b214005902940956d5b90ce" }
+]
+
+[triggers]
+crons = [ "*/30 * * * *" ]
