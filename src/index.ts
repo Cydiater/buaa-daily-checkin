@@ -360,7 +360,7 @@ export default {
                         info.skip += 1;
                         await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
                         await check_with_user(env, update.message.chat.username);
-                    } else if (update.message.text.startsWith("/noskip")) {
+                    } else if (update.message.text.startsWith("/no_skip")) {
                         const info = await info_of(env, update.message.chat.username);
                         if (info.skip > 0) {
                             info.skip -= 1;
@@ -412,7 +412,7 @@ export default {
                     return new Response("end with error");
                 }
                 if (e instanceof UserNotFound) {
-                    await send_message_to(env, update.message.chat.id, `User ${update.message.chat.username} does not exits`, false);
+                    await send_message_to(env, update.message.chat.id, `User ${update.message.chat.username} does not exist`, false);
                     return new Response("end with error");
                 }
                 throw e;
