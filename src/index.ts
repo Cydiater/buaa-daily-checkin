@@ -85,7 +85,7 @@ const checkin_hh = t.union([
     t.literal(16), 
     t.literal(17), 
     t.literal(18), 
-    t.literal(19)
+    t.literal(19),
 ]);
 
 const checkin_mm = t.union([t.literal(0), t.literal(30)]);
@@ -128,6 +128,7 @@ const help =
 - /delete: erase stored information about current user
 - /skip: add one skip day
 - /no_skip: cancel one skip day
+- /checkin: checkin now
 
 To update your location, send a location to this bot.
 
@@ -159,6 +160,23 @@ async function login(username: string, password: string): Promise<string> {
     return cookies;
 }
 
+async function send_message_to(env: Env, chat_id: number, msg: string, markdown: boolean): Promise<void> {
+    const resp = await fetch(telegram_bot_url + env.TelegramToken + "/" + "sendMessage", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            chat_id: chat_id.toString(), 
+            parse_mode: markdown ? "MarkdownV2" : "", 
+            text: msg,
+        }),
+    });
+    if (!resp.ok) {
+        console.error("send telegram message failed: " + await resp.text());
+    }
+}
+
 async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
     const cookies = await login(info.username, info.password);
     const res = await fetch(gaode_url + "?" + new URLSearchParams({
@@ -186,16 +204,7 @@ async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
     const resp = BuaaResp.decode(json);
     if (isLeft(resp))
         throw new Error(`Invalid CheckIn Resp ${JSON.stringify(json)}`);
-    await fetch(telegram_bot_url + "sendMessage", {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            chat_id: info.chat_id.toString(),
-            text: resp.right.m,
-        }),
-    });
+    await send_message_to(env, info.chat_id, resp.right.m, false);
 } 
 
 
@@ -210,23 +219,6 @@ const TelegramUpdate = t.type({
         text: t.string,
     })]),
 });
-
-async function send_message_to(env: Env, chat_id: number, msg: string, markdown: boolean): Promise<void> {
-    const resp = await fetch(telegram_bot_url + env.TelegramToken + "/" + "sendMessage", {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            chat_id: chat_id.toString(), 
-            parse_mode: markdown ? "MarkdownV2" : "", 
-            text: msg,
-        }),
-    });
-    if (!resp.ok) {
-        console.error(await resp.text());
-    }
-}
 
 async function info_of(env: Env, username: string): Promise<t.TypeOf<typeof UserInfo>> {
     const key = `user:${username}`;
@@ -265,8 +257,9 @@ export default {
                 const name = key.name.split(":")[1];
                 try {
                     const info = await info_of(env, name);
-                    if (hh != info.hh || mm != info.mm)
+                    if (hh != info.hh || mm != info.mm) {
                         continue;
+                    }
                     if (info.skip > 0) {
                         info.skip -= 1;
                         await env.kv.put(`user:${name}`, JSON.stringify(info));
@@ -287,7 +280,6 @@ export default {
             cursor = value.cursor as string;
         }
         for (let user of users) {
-            console.log(`perform checkin with user ${JSON.stringify(user)}`);
             await checkin(env, user);
         }
     },
@@ -367,6 +359,9 @@ export default {
                         }
                         await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
                         await check_with_user(env, update.message.chat.username);
+                    } else if (update.message.text.startsWith("/checkin"))  {
+                        const info = await info_of(env, update.message.chat.username);
+                        await checkin(env, info);
                     } else if (update.message.text.startsWith("/delete")) {
                         await env.kv.delete(`user:${update.message.chat.username}`);
                         await check_with_user(env, update.message.chat.username);
