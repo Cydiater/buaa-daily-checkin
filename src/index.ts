@@ -107,6 +107,7 @@ const UserInfo = t.type({
     province: t.string,
     address: t.string,
     location: TelegramMessageLocation,
+    in_campus: t.boolean,
 });
 
 export interface Env {
@@ -125,6 +126,8 @@ const help =
 - /info: stored information about current user
 - /login <username> <password>: store the buaa credential and enable daily checkin
 - /checkin_at <time>: set checkin time, the hours should between 16 and 19, the minutes should be 0 or 30. Default: 17:30. Example: /checkin_at 18:30. 
+- /in_campus: set in campus     
+- /out_of_campus: set out of campus
 - /delete: erase stored information about current user
 - /skip: add one skip day
 - /no_skip: cancel one skip day
@@ -185,12 +188,19 @@ async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
     }));
     const j: any = await res.json();
     const checkin_form = new URLSearchParams({
-        'sfzs': '0', 'bzxyy': '2', 'bzxyy_other': '', 'brsfzc': '1', 'tw': '', 'sfcxzz': '', 'zdjg': '', 'zdjg_other': '', 'sfgl': '', 'gldd': '',
+        'brsfzc': '1', 'tw': '', 'sfcxzz': '', 'zdjg': '', 'zdjg_other': '', 'sfgl': '', 'gldd': '',
         'gldd_other': '', 'glyy': '', 'glyy_other': '', 'gl_start': '', 'gl_end': '', 'sfmqjc': '', 'sfzc_14': '1', 'sfqw_14': '0', 'sfqw_14_remark': '',
         'sfzgfx': '0', 'sfzgfx_remark': '', 'sfjc_14': '0', 'sfjc_14_remark': '', 'sfjcqz_14': '0', 'sfjcqz_14_remark': '', 'sfgtjz_14': '0',
         'sfgtjz_14_remark': '', 'szsqqz': '0', 'sfyqk': '', 'szdd': '1', 'area': info.area, 'city': info.city, 'province': info.province,
         'address': info.address, 'geo_api_info': JSON.stringify(j["regeocode"]), 'gwdz': '', 'is_move': '0', 'move_reason': '', 'move_remark': '',
     });
+    if (info.in_campus) {
+        checkin_form.append('sfzs', '1');
+    } else {
+        checkin_form.append('sfzs', '0');
+        checkin_form.append('bzxyy', '2');
+        checkin_form.append('bzxyy_other', '');
+    }
     const result = await fetch(checkin_url, {
         method: 'POST',
         headers: {
@@ -317,6 +327,7 @@ export default {
                             city: "北京市",
                             area: "北京市 海淀区",
                             address: "北京市海淀区花园路街道北京航空航天大学大运村学生公寓",
+                            in_campus: true,
                             location: {
                                 longitude: 116.343699,
                                 latitude: 39.977847,
@@ -365,7 +376,18 @@ export default {
                     } else if (update.message.text.startsWith("/delete")) {
                         await env.kv.delete(`user:${update.message.chat.username}`);
                         await check_with_user(env, update.message.chat.username);
-                    } else {
+                    } else if (update.message.text.startsWith("/in_campus")) {
+                        const info = await info_of(env, update.message.chat.username);
+                        info.in_campus = true;
+                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.username);
+                    } else if (update.message.text.startsWith("/out_of_campus")) {
+                        const info = await info_of(env, update.message.chat.username);
+                        info.in_campus = false;
+                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.username);
+                    }
+                    else {
                         throw new WrongCommandError(update.message.text);
                     }
                 } else if (update.message.location != undefined) {
