@@ -196,6 +196,8 @@ async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
     });
     if (info.in_campus) {
         checkin_form.append('sfzs', '1');
+        checkin_form.append('bzxyy', '2');
+        checkin_form.append('bzxyy_other', '');
     } else {
         checkin_form.append('sfzs', '0');
         checkin_form.append('bzxyy', '2');
@@ -210,11 +212,20 @@ async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
         },
         body: checkin_form,
     });
-    const json = await result.json();
-    const resp = BuaaResp.decode(json);
-    if (isLeft(resp))
-        throw new Error(`Invalid CheckIn Resp ${JSON.stringify(json)}`);
-    await send_message_to(env, info.chat_id, resp.right.m, false);
+    const text = await result.text();
+    try {
+        const json = JSON.parse(text);
+        const resp = BuaaResp.decode(json);
+        if (isLeft(resp))
+            throw new Error(`Invalid CheckIn Resp ${JSON.stringify(json)}`);
+        await send_message_to(env, info.chat_id, resp.right.m, false);
+    } catch (e: unknown) {
+        if (e instanceof SyntaxError) {
+            await send_message_to(env, info.chat_id, "checkin failed: resp is not JSON", false);
+            return;
+        }
+        throw e;
+    }
 } 
 
 
@@ -300,7 +311,8 @@ export default {
         ctx: ExecutionContext
     ): Promise<Response> {
         try {
-            const json: object = await request.json();
+            const text = await request.text();
+            const json: object = JSON.parse(text);
             const result = TelegramUpdate.decode(json);
             if (isLeft(result))
                 throw new NotTelegramUpdateError(json);
@@ -447,6 +459,10 @@ export default {
             }
             if (e instanceof InvalidUserInfo) {
                 console.error(JSON.stringify(e.json));
+                return new Response("end with error");
+            }
+            if (e instanceof SyntaxError) {
+                console.log(`${e.message}`);
                 return new Response("end with error");
             }
             throw e;
