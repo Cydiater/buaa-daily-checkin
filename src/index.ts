@@ -126,12 +126,13 @@ const help =
 - /info: stored information about current user
 - /login <username> <password>: store the buaa credential and enable daily checkin
 - /checkin_at <time>: set checkin time, the hours should between 16 and 19, the minutes should be 0 or 30. Default: 17:30. Example: /checkin_at 18:30. 
-- /in_campus: set in campus     
+    - /in_campus: set in campus     
 - /out_of_campus: set out of campus
 - /delete: erase stored information about current user
 - /skip: add one skip day
 - /no_skip: cancel one skip day
 - /checkin: checkin now
+- /schedule: trigger the schedule event
 
 To update your location, send a location to this bot.
 
@@ -228,7 +229,6 @@ async function checkin(env: Env, info: t.TypeOf<typeof UserInfo>) {
     }
 } 
 
-
 const TelegramUpdate = t.type({
     message: t.intersection([t.type({
         chat: t.type({
@@ -258,7 +258,49 @@ async function check_with_user(env: Env, username: string) {
     const info = await info_of(env, username);
     await send_message_to(env, info.chat_id, 
                           `\`\`\`json\n${JSON.stringify(info, null, 2)}\n\`\`\``,
-                         true);
+                          true);
+}
+
+async function do_scheduled(env: Env) {
+    const d: Date = new Date();
+    const hh = (d.getUTCHours() + 8) % 24;
+    const mm = d.getUTCMinutes();
+    const users = [];
+    let cursor: string | null = null;
+    while (true) {
+        const value = await env.kv.list({ prefix: "user:", cursor: cursor });
+        for (const key of value.keys) {
+            const name = key.name.split(":")[1];
+            try {
+                const info = await info_of(env, name);
+                const current_minutes = hh * 60 + mm;
+                const expected_minutes = info.hh * 60 + info.mm;
+                if (Math.abs(expected_minutes - current_minutes) > 10) {
+                    continue;
+                }
+                if (info.skip > 0) {
+                    info.skip -= 1;
+                    await env.kv.put(`user:${name}`, JSON.stringify(info));
+                    await send_message_to(env, info.chat_id, `skip for today`, false);
+                    await check_with_user(env, info.username);
+                }
+                users.push(info);
+            } catch (e: unknown) {
+                if (e instanceof UserNotFound) {
+                    console.error(`User not found for username ${e.username}`);
+                    return;
+                }
+                throw e;
+            }
+        }
+        if (value.list_complete)
+            break;
+        cursor = value.cursor as string;
+    }
+    console.log(`schedule for ${users.length} users`);
+    for (let user of users) {
+        await checkin(env, user);
+    }
 }
 
 export default {
@@ -267,42 +309,7 @@ export default {
         env: Env,
         ctx: ExecutionContext
     ): Promise<void> {
-        const d: Date = new Date();
-        const hh = (d.getUTCHours() + 8) % 24;
-        const mm = d.getUTCMinutes();
-        const users = [];
-        let cursor: string | null = null;
-        while (true) {
-            const value = await env.kv.list({ prefix: "user:", cursor: cursor });
-            for (const key of value.keys) {
-                const name = key.name.split(":")[1];
-                try {
-                    const info = await info_of(env, name);
-                    if (hh != info.hh || mm != info.mm) {
-                        continue;
-                    }
-                    if (info.skip > 0) {
-                        info.skip -= 1;
-                        await env.kv.put(`user:${name}`, JSON.stringify(info));
-                        await send_message_to(env, info.chat_id, `skip for today`, false);
-                        await check_with_user(env, info.username);
-                    }
-                    users.push(info);
-                } catch (e: unknown) {
-                    if (e instanceof UserNotFound) {
-                        console.error(`User not found for username ${e.username}`);
-                        return;
-                    }
-                    throw e;
-                }
-            }
-            if (value.list_complete)
-                break;
-            cursor = value.cursor as string;
-        }
-        for (let user of users) {
-            await checkin(env, user);
-        }
+        await do_scheduled(env);
     },
 
     async fetch(
@@ -398,8 +405,9 @@ export default {
                         info.in_campus = false;
                         await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
                         await check_with_user(env, update.message.chat.username);
-                    }
-                    else {
+                    } else if (update.message.text.startsWith("/schedule")) {
+                        await do_scheduled(env);
+                    } else {
                         throw new WrongCommandError(update.message.text);
                     }
                 } else if (update.message.location != undefined) {
