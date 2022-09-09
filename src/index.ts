@@ -21,11 +21,11 @@ class InvalidUserInfo extends Error {
 };
 
 class UserNotFound extends Error {
-    username: string;
+    id: number;
 
-    constructor(username: string) {
+    constructor(id: number) {
         super();
-        this.username = username;
+        this.id = id;
     }
 };
 
@@ -233,7 +233,6 @@ const TelegramUpdate = t.type({
     message: t.intersection([t.type({
         chat: t.type({
             id: t.number,
-            username: t.string,
         }),
     }), t.partial({
         location: TelegramMessageLocation,
@@ -241,11 +240,11 @@ const TelegramUpdate = t.type({
     })]),
 });
 
-async function info_of(env: Env, username: string): Promise<t.TypeOf<typeof UserInfo>> {
-    const key = `user:${username}`;
+async function info_of(env: Env, id: number): Promise<t.TypeOf<typeof UserInfo>> {
+    const key = `user:${id}`;
     const value = await env.kv.get(key);
     if (value == null)
-        throw new UserNotFound(username);
+        throw new UserNotFound(id);
     const json = JSON.parse(value);
     const result = UserInfo.decode(json);
     if (isLeft(result))
@@ -254,8 +253,8 @@ async function info_of(env: Env, username: string): Promise<t.TypeOf<typeof User
     return info;
 }
 
-async function check_with_user(env: Env, username: string) {
-    const info = await info_of(env, username);
+async function check_with_user(env: Env, id: number) {
+    const info = await info_of(env, id);
     await send_message_to(env, info.chat_id, 
                           `\`\`\`json\n${JSON.stringify(info, null, 2)}\n\`\`\``,
                           true);
@@ -270,9 +269,9 @@ async function do_scheduled(env: Env) {
     while (true) {
         const value = await env.kv.list({ prefix: "user:", cursor: cursor });
         for (const key of value.keys) {
-            const name = key.name.split(":")[1];
+            const id = +key.name.split(":")[1];
             try {
-                const info = await info_of(env, name);
+                const info = await info_of(env, id);
                 const current_minutes = hh * 60 + mm;
                 const expected_minutes = info.hh * 60 + info.mm;
                 if (Math.abs(expected_minutes - current_minutes) > 10) {
@@ -280,14 +279,14 @@ async function do_scheduled(env: Env) {
                 }
                 if (info.skip > 0) {
                     info.skip -= 1;
-                    await env.kv.put(`user:${name}`, JSON.stringify(info));
+                    await env.kv.put(`user:${id}`, JSON.stringify(info));
                     await send_message_to(env, info.chat_id, `skip for today`, false);
-                    await check_with_user(env, info.username);
+                    await check_with_user(env, info.chat_id);
                 }
                 users.push(info);
             } catch (e: unknown) {
                 if (e instanceof UserNotFound) {
-                    console.error(`User not found for username ${e.username}`);
+                    console.error(`User not found for id ${e.id}`);
                     return;
                 }
                 throw e;
@@ -334,7 +333,7 @@ export default {
                             throw new WrongCommandError(update.message.text);
                         }
                         const _ = await login(args[1], args[2]);
-                        const key = `user:${update.message.chat.username}`;
+                        const key = `user:${update.message.chat.id}`;
                         await env.kv.put(key, JSON.stringify({
                             username: args[1],
                             password: args[2],
@@ -352,7 +351,7 @@ export default {
                                 latitude: 39.977847,
                             }
                         }));
-                        await check_with_user(env, update.message.chat.username);
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/checkin_at ")) {
                         const args = update.message.text.split(" ");
                         if (args.length != 2) {
@@ -366,45 +365,45 @@ export default {
                         const mm = checkin_mm.decode(+parts[1]);
                         if (isLeft(hh) || isLeft(mm))
                             throw new WrongCheckinTime(args[1]);
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         info.hh = hh.right;
                         info.mm = mm.right;
-                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/info")) {
                         const d: Date = new Date();
                         const hh = (d.getUTCHours() + 8) % 24;
                         const mm = d.getUTCMinutes();
                         await send_message_to(env, update.message.chat.id, `Current Time: ${hh}:${mm}`, false);
-                        await check_with_user(env, update.message.chat.username);
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/skip")) {
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         info.skip += 1;
-                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/no_skip")) {
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         if (info.skip > 0) {
                             info.skip -= 1;
                         }
-                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/checkin"))  {
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         await checkin(env, info);
                     } else if (update.message.text.startsWith("/delete")) {
-                        await env.kv.delete(`user:${update.message.chat.username}`);
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.delete(`user:${update.message.chat.id}`);
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/in_campus")) {
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         info.in_campus = true;
-                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/out_of_campus")) {
-                        const info = await info_of(env, update.message.chat.username);
+                        const info = await info_of(env, update.message.chat.id);
                         info.in_campus = false;
-                        await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                        await check_with_user(env, update.message.chat.username);
+                        await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                        await check_with_user(env, update.message.chat.id);
                     } else if (update.message.text.startsWith("/schedule")) {
                         await do_scheduled(env);
                     } else {
@@ -426,14 +425,14 @@ export default {
                     const district = resp.right.regeocode.addressComponent.district;
                     const area = city + " " + district;
                     const address = resp.right.regeocode.formatted_address;
-                    const info = await info_of(env, update.message.chat.username);
+                    const info = await info_of(env, update.message.chat.id);
                     info.city = city;
                     info.province = province;
                     info.area = area;
                     info.address = address;
                     info.location = loc;
-                    await env.kv.put(`user:${update.message.chat.username}`, JSON.stringify(info));
-                    await check_with_user(env, update.message.chat.username);
+                    await env.kv.put(`user:${update.message.chat.id}`, JSON.stringify(info));
+                    await check_with_user(env, update.message.chat.id);
                 }
             } catch (e: unknown) {
                 if (e instanceof WrongCommandError) {
@@ -449,7 +448,7 @@ export default {
                     return new Response("end with error");
                 }
                 if (e instanceof UserNotFound) {
-                    await send_message_to(env, update.message.chat.id, `User ${update.message.chat.username} does not exist`, false);
+                    await send_message_to(env, update.message.chat.id, `User ${update.message.chat.id} does not exist`, false);
                     return new Response("end with error");
                 }
                 throw e;
@@ -461,7 +460,7 @@ export default {
                 return new Response("end with error");
             }
             if (e instanceof UserNotFound) {
-                const msg = `User not found with username ${e.username}`;
+                const msg = `User not found with id ${e.id}`;
                 console.error(msg);
                 return new Response("end with error");
             }
